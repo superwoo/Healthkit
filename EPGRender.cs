@@ -2171,7 +2171,7 @@ namespace Water.Healthkit.Drawing
                 .Where(lead => lead != null)
                 .Select(lead => lead.Length)
                 .DefaultIfEmpty(0)
-                .Min();
+                .Max();
 
             if (totalPoints <= 0)
                 throw new ArgumentException("心电图数据不能为空。", nameof(edata));
@@ -2203,21 +2203,53 @@ namespace Water.Healthkit.Drawing
 
             float Mm(float v) => v * mmToPx;
 
-            List<float[]> SliceWaveData(int offset)
+            int GetPageCapacity(EPGRender render, float renderWidth, LeadMode pageMode)
             {
+                float hwidth = 10f * mmToPx;
+                float xdelta = render.Left * 2f;
+                float zxstep = (float)(Speed * mmToPx / effectiveSampleRate * render.ZoomX);
+
+                if (zxstep <= 0f)
+                    return 1;
+
+                return pageMode switch
+                {
+                    LeadMode.LM_6x2 or LeadMode.LM_6x2x1 => Math.Max(1, (int)((renderWidth / 2f - (render.Left + hwidth)) / zxstep)),
+                    LeadMode.LM_6x3 or LeadMode.LM_6x3x1 => Math.Max(1, (int)((renderWidth / 3f - xdelta / 3f - hwidth) / zxstep)),
+                    LeadMode.LM_3x4 => Math.Max(1, (int)((renderWidth / 4f - hwidth) / zxstep)),
+                    _ => Math.Max(1, (int)((renderWidth - xdelta - hwidth) / zxstep))
+                };
+            }
+
+            List<float[]> SliceWaveData(int offset, int pageLength)
+            {
+                pageLength = Math.Max(0, Math.Min(pageLength, totalPoints - offset));
                 var result = new List<float[]>(edata.Count);
 
                 foreach (var lead in edata)
                 {
-                    if (lead == null || offset >= lead.Length)
+                    var slice = new float[pageLength];
+
+                    if (lead == null || lead.Length == 0 || pageLength == 0)
                     {
-                        result.Add(Array.Empty<float>());
+                        result.Add(slice);
                         continue;
                     }
 
-                    int remaining = lead.Length - offset;
-                    var slice = new float[remaining];
-                    Array.Copy(lead, offset, slice, 0, remaining);
+                    int copyOffset = Math.Min(offset, lead.Length);
+                    int remaining = Math.Max(lead.Length - copyOffset, 0);
+                    int copyLength = Math.Min(remaining, pageLength);
+
+                    if (copyLength > 0)
+                        Array.Copy(lead, copyOffset, slice, 0, copyLength);
+
+                    float fillValue = lead[Math.Min(Math.Max(copyOffset - 1, 0), lead.Length - 1)];
+                    if (copyLength > 0)
+                        fillValue = slice[copyLength - 1];
+
+                    for (int i = copyLength; i < pageLength; i++)
+                        slice[i] = fillValue;
+
                     result.Add(slice);
                 }
 
@@ -2354,17 +2386,16 @@ namespace Water.Healthkit.Drawing
                                     textPaint);
                             }
 
-                            var pageData = SliceWaveData(targetOffset);
-
                             render.Reset(pageWidth, Mm(classicWaveHeightMm), mode, _secidx, effectiveSampleRate);
+                            int pageCapacity = GetPageCapacity(render, pageWidth, mode);
+                            var pageData = SliceWaveData(targetOffset, pageCapacity);
 
                             canvas.Save();
                             canvas.Translate(0, Mm(classicWaveTopMm));
                             render.DrawDiagWaves(canvas, pageData, 0);
                             canvas.Restore();
 
-                            int pointsPerPage = Math.Max(1, render.XmaxPoints[0]);
-                            int advance = Math.Min(pointsPerPage, totalPoints - targetOffset);
+                            int advance = Math.Min(pageCapacity, totalPoints - targetOffset);
 
                             canvas.DrawText(
                                 $"第 {page} 页",
@@ -2511,14 +2542,14 @@ namespace Water.Healthkit.Drawing
                                 smallFont,
                                 textPaint);
 
-                            var pageData = SliceWaveData(targetOffset);
-
                             render.Reset(
                                 waveWidthPx,
                                 waveContentHeightPx,
                                 mode,
                                 _secidx,
                                 effectiveSampleRate);
+                            int pageCapacity = GetPageCapacity(render, waveWidthPx, mode);
+                            var pageData = SliceWaveData(targetOffset, pageCapacity);
 
                             canvas.Save();
                             canvas.ClipRect(SKRect.Create(
@@ -2530,8 +2561,7 @@ namespace Water.Healthkit.Drawing
                             render.DrawDiagWaves(canvas, pageData, 0);
                             canvas.Restore();
 
-                            int pointsPerPage = Math.Max(1, render.XmaxPoints[0]);
-                            int advance = Math.Min(pointsPerPage, totalPoints - targetOffset);
+                            int advance = Math.Min(pageCapacity, totalPoints - targetOffset);
 
                             DrawImageStyleReportFooter(
                                 canvas,
@@ -2646,7 +2676,6 @@ namespace Water.Healthkit.Drawing
                 width * 0.14f
             };
 
-            float baseline = y + height * 0.64f;
             float pad = Math.Max(height * 0.12f, 6f);
             float currentX = x;
 
@@ -2661,6 +2690,13 @@ namespace Water.Healthkit.Drawing
                 $"床号：{bedNo ?? string.Empty}"
             };
 
+            int[] maxLines =
+            {
+                1, 1, 1, 2, 2, 2, 1
+            };
+
+            float lineHeight = Math.Max(font.Size * 1.05f, height * 0.24f);
+
             for (int i = 0; i < columnWidths.Length; i++)
             {
                 if (i > 0)
@@ -2668,8 +2704,29 @@ namespace Water.Healthkit.Drawing
 
                 float textX = currentX + pad;
                 float availableWidth = Math.Max(columnWidths[i] - pad * 2, 0f);
-                string fitted = TruncateTextToWidth(values[i], availableWidth, font);
-                canvas.DrawText(fitted, textX, baseline, SKTextAlign.Left, font, textPaint);
+                var lines = WrapReportText(values[i], availableWidth, font);
+                int allowedLines = Math.Max(1, maxLines[i]);
+
+                if (lines.Count == 0)
+                    lines.Add(string.Empty);
+
+                if (lines.Count > allowedLines)
+                {
+                    lines = lines.Take(allowedLines).ToList();
+                    lines[allowedLines - 1] = TruncateTextToWidth(lines[allowedLines - 1], availableWidth, font, true);
+                }
+
+                float totalHeight = (lines.Count - 1) * lineHeight;
+                float baseline = y + Math.Max(height * 0.55f - totalHeight / 2f, lineHeight);
+                float maxBaseline = y + height - Math.Max(height * 0.18f, 2f) - totalHeight;
+                baseline = Math.Min(baseline, maxBaseline);
+                baseline = Math.Max(baseline, y + lineHeight);
+
+                foreach (var line in lines)
+                {
+                    canvas.DrawText(line, textX, baseline, SKTextAlign.Left, font, textPaint);
+                    baseline += lineHeight;
+                }
 
                 currentX += columnWidths[i];
             }
@@ -2804,7 +2861,7 @@ namespace Water.Healthkit.Drawing
             var lines = WrapReportText(text, maxWidth, font);
             int maxLines = float.IsPositiveInfinity(maxBottom)
                 ? int.MaxValue
-                : Math.Max(0, (int)Math.Floor((maxBottom - y) / lineHeight) + 1);
+                : Math.Max(0, (int)Math.Floor((maxBottom - y) / lineHeight));
 
             if (maxLines <= 0)
                 return false;
@@ -2816,7 +2873,7 @@ namespace Water.Healthkit.Drawing
             {
                 string line = lines[i];
                 if (truncated && i == drawCount - 1)
-                    line = TruncateTextToWidth(string.Concat(lines.Skip(i)), maxWidth, font, true);
+                    line = TruncateTextToWidth(line, maxWidth, font, true);
 
                 canvas.DrawText(line, x, y, SKTextAlign.Left, font, paint);
                 y += lineHeight;
@@ -2869,6 +2926,9 @@ namespace Water.Healthkit.Drawing
                 return text;
 
             const string ellipsis = "…";
+            if (appendEllipsis && font.MeasureText(ellipsis) > maxWidth)
+                return string.Empty;
+
             string suffix = appendEllipsis ? ellipsis : string.Empty;
             string candidate = text;
 
