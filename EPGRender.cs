@@ -2304,12 +2304,6 @@ namespace Water.Healthkit.Drawing
                 Size = Mm(5.4f)
             };
 
-            using var headerFont = new SKFont
-            {
-                Typeface = _zhcn,
-                Size = Mm(2.8f)
-            };
-
             using var normalFont = new SKFont
             {
                 Typeface = _zhcn,
@@ -2417,24 +2411,97 @@ namespace Water.Healthkit.Drawing
                     break;
                 case EcgReportLayout.Single:
                     {
-                        const float frameLeftMm = 3f;
-                        const float frameTopMm = 3f;
-                        const float frameWidthMm = 291f;
-                        const float frameHeightMm = 204f;
+                        // Single 报告版式：按传入页面尺寸动态布局，支持横向/纵向。
+                        float pageWidthMm = iwidth;
+                        float pageHeightMm = iheight;
+                        bool isLandscape = pageWidthMm >= pageHeightMm;
 
-                        const float titleTopMm = 4f;
-                        const float titleHeightMm = 17f;
-                        const float patientTopMm = 26f;
-                        const float patientHeightMm = 12f;
-                        const float waveTopMm = 40f;
-                        const float waveHeightMm = 134f;
-                        const float resultTopMm = 177f;
-                        const float resultHeightMm = 25f;
-                        const float footerBaselineMm = 205.2f;
-                        const float waveInfoHeightMm = 6f;
+                        // 页面内容区（不绘制整页外框，仅用于坐标计算）。
+                        float pageMarginMm = isLandscape ? 3f : 4f;
+                        float contentLeftMm = pageMarginMm;
+                        float contentTopMm = pageMarginMm;
+                        float contentWidthMm = Math.Max(10f, pageWidthMm - 2f * pageMarginMm);
 
-                        float waveWidthPx = Mm(frameWidthMm);
-                        float waveContentHeightPx = Mm(waveHeightMm - waveInfoHeightMm);
+                        // 顶部标题区、患者信息区与波形区的基础参数。
+                        float sectionGapMm = isLandscape ? 2f : 1.8f;
+                        float titleTopMm = contentTopMm;
+                        float titleHeightMm = isLandscape ? 17f : 14f;
+                        float patientHeightMm = isLandscape ? 12f : 14f;
+                        float patientTopMm = 0f;
+                        float waveTopMm = 0f;
+                        float waveInfoHeightMm = isLandscape ? 6f : 5.4f;
+
+                        const float footerBaselineOffsetMm = 1.2f; // 页脚文字基线距下边距的距离
+                        float footerTextBandMm = isLandscape ? 3.8f : 4.3f; // 结果区下方为“注释+打印时间”预留的高度
+                        float footerSidePaddingMm = 1.2f;
+                        float footerBaselineMm = pageHeightMm - pageMarginMm - footerBaselineOffsetMm;
+                        float minWaveHeightMm = isLandscape ? 72f : 112f;
+                        float baseResultHeightMm = isLandscape ? 25f : 40f;
+                        float minResultHeightMm = isLandscape ? 19f : 28f;
+                        float minTitleHeightMm = isLandscape ? 15f : 11f;
+                        float minPatientHeightMm = isLandscape ? 10f : 10f;
+
+                        // 结果区先用目标高度，后续根据可用空间逐步回调。
+                        float resultHeightMm = baseResultHeightMm;
+                        float resultTopMm = 0f;
+                        float waveHeightMm = 0f;
+
+                        // 根据当前标题/患者/结果区高度，重算各分区的纵向坐标关系。
+                        void ReflowVertical()
+                        {
+                            patientTopMm = titleTopMm + titleHeightMm + sectionGapMm;
+                            waveTopMm = patientTopMm + patientHeightMm + sectionGapMm;
+                            resultTopMm = footerBaselineMm - footerTextBandMm - resultHeightMm;
+                            waveHeightMm = Math.Max(30f, resultTopMm - sectionGapMm - waveTopMm);
+                        }
+
+                        ReflowVertical();
+
+                        // 若波形区不足最小高度，先压缩结果区（但不低于结果区最小高度）。
+                        if (waveHeightMm < minWaveHeightMm)
+                        {
+                            float need = minWaveHeightMm - waveHeightMm;
+                            float shrinkResult = Math.Min(Math.Max(resultHeightMm - minResultHeightMm, 0f), need);
+                            resultHeightMm -= shrinkResult;
+                            ReflowVertical();
+                        }
+
+                        // 仍不足时，压缩患者信息区（保留可读最小高度）。
+                        if (waveHeightMm < minWaveHeightMm)
+                        {
+                            float need = minWaveHeightMm - waveHeightMm;
+                            float shrinkPatient = Math.Min(Math.Max(patientHeightMm - minPatientHeightMm, 0f), need);
+                            patientHeightMm -= shrinkPatient;
+                            ReflowVertical();
+                        }
+
+                        // 仍不足时，压缩标题区（保留标题最小可读高度）。
+                        if (waveHeightMm < minWaveHeightMm)
+                        {
+                            float need = minWaveHeightMm - waveHeightMm;
+                            float shrinkTitle = Math.Min(Math.Max(titleHeightMm - minTitleHeightMm, 0f), need);
+                            titleHeightMm -= shrinkTitle;
+                            ReflowVertical();
+                        }
+
+                        if (waveHeightMm < minWaveHeightMm)
+                        {
+                            // 页面高度不足以同时满足最小波形区与最小结果区时，优先保证结果区下限，波形区按剩余空间自适应。
+                            float availableWaveMm = footerBaselineMm - footerTextBandMm - minResultHeightMm - sectionGapMm - waveTopMm;
+                            waveHeightMm = Math.Max(0f, availableWaveMm);
+                            resultTopMm = waveTopMm + sectionGapMm + waveHeightMm;
+                            resultHeightMm = Math.Max(minResultHeightMm, footerBaselineMm - footerTextBandMm - resultTopMm);
+                        }
+
+                        // 波形绘制尺寸：render 使用内容区宽度；clip 使用去除信息行后的有效高度。
+                        float waveWidthPx = Mm(contentWidthMm);
+                        float waveClipHeightMm = Math.Max(1f, waveHeightMm - waveInfoHeightMm);
+                        float waveContentHeightPx = Mm(Math.Max(10f, waveClipHeightMm));
+                        using var patientInfoFont = new SKFont
+                        {
+                            Typeface = patientFont.Typeface,
+                            Size = isLandscape ? patientFont.Size : Mm(1.9f)
+                        };
 
                         using var render = new EPGRender(mmToPx, (int)Math.Round(Mm(2.5f)));
                         ConfigureReportRender(render);
@@ -2451,69 +2518,58 @@ namespace Water.Healthkit.Drawing
 
                             canvas.Clear(SKColors.White);
 
+                            // 仅保留标题区边界线，作为顶部区块分隔。
                             canvas.DrawRect(
-                                Mm(frameLeftMm),
-                                Mm(frameTopMm),
-                                Mm(frameWidthMm),
-                                Mm(frameHeightMm),
-                                borderPaint);
-
-                            canvas.DrawRect(
-                                Mm(frameLeftMm),
+                                Mm(contentLeftMm),
                                 Mm(titleTopMm),
-                                Mm(frameWidthMm),
+                                Mm(contentWidthMm),
                                 Mm(titleHeightMm),
                                 borderPaint);
+
+                            // 条码在标题区左侧，横纵向使用不同尺寸保证可读性。
+                            float barWidthMm = isLandscape ? 31f : 26f;
+                            float barHeightMm = isLandscape ? 6.2f : 5.2f;
+                            float barX = contentLeftMm + 2f;
+                            float barY = titleTopMm + 4f;
 
                             DrawCode128Bar(
                                 canvas,
                                 string.IsNullOrWhiteSpace(qrc) ? (patientId ?? "ECG") : qrc,
-                                Mm(5f),
-                                Mm(8f),
-                                Mm(31f),
-                                Mm(6.2f),
+                                Mm(barX),
+                                Mm(barY),
+                                Mm(barWidthMm),
+                                Mm(barHeightMm),
                                 textPaint);
 
                             canvas.DrawText(
-                                TruncateTextToWidth(string.IsNullOrWhiteSpace(qrc) ? (patientId ?? "ECG") : qrc, Mm(31f), monoFont),
-                                Mm(20.5f),
-                                Mm(15.9f),
+                                TruncateTextToWidth(string.IsNullOrWhiteSpace(qrc) ? (patientId ?? "ECG") : qrc, Mm(barWidthMm), monoFont),
+                                Mm(barX + barWidthMm / 2f),
+                                Mm(barY + barHeightMm + 1.7f),
                                 SKTextAlign.Center,
                                 monoFont,
                                 textPaint);
 
-                            if (!string.IsNullOrWhiteSpace(hospital))
-                            {
-                                canvas.DrawText(
-                                    hospital,
-                                    Mm(frameLeftMm + frameWidthMm / 2f),
-                                    Mm(10.4f),
-                                    SKTextAlign.Center,
-                                    headerFont,
-                                    textPaint);
-                            }
-
                             canvas.DrawText(
                                 defaultTitle,
-                                Mm(frameLeftMm + frameWidthMm / 2f),
-                                Mm(17.2f),
+                                Mm(contentLeftMm + contentWidthMm / 2f),
+                                Mm(titleTopMm + titleHeightMm - 3.8f),
                                 SKTextAlign.Center,
                                 titleFont,
                                 textPaint);
 
                             canvas.DrawText(
-                                TruncateTextToWidth(timeText, Mm(frameWidthMm - 4f), smallFont),
-                                Mm(frameLeftMm + frameWidthMm - 1.8f),
-                                Mm(patientTopMm - 1.8f),
+                                TruncateTextToWidth(timeText, Mm(contentWidthMm - 4f), smallFont),
+                                Mm(contentLeftMm + contentWidthMm - 1.2f),
+                                Mm(patientTopMm - 0.7f),
                                 SKTextAlign.Right,
                                 smallFont,
                                 textPaint);
 
                             DrawPatientInfoTable(
                                 canvas,
-                                Mm(frameLeftMm),
+                                Mm(contentLeftMm),
                                 Mm(patientTopMm),
-                                Mm(frameWidthMm),
+                                Mm(contentWidthMm),
                                 Mm(patientHeightMm),
                                 patientName,
                                 patientGender,
@@ -2525,18 +2581,11 @@ namespace Water.Healthkit.Drawing
                                 reportTime,
                                 borderPaint,
                                 textPaint,
-                                patientFont);
-
-                            canvas.DrawRect(
-                                Mm(frameLeftMm),
-                                Mm(waveTopMm),
-                                Mm(frameWidthMm),
-                                Mm(waveHeightMm),
-                                borderPaint);
+                                patientInfoFont);
 
                             canvas.DrawText(
                                 $"{Speed}mm/s   {Gain}mm/mV   {filterText}",
-                                Mm(frameLeftMm + frameWidthMm - 1.8f),
+                                Mm(contentLeftMm + contentWidthMm - 1.2f),
                                 Mm(waveTopMm + 4.1f),
                                 SKTextAlign.Right,
                                 smallFont,
@@ -2548,16 +2597,19 @@ namespace Water.Healthkit.Drawing
                                 mode,
                                 _secidx,
                                 effectiveSampleRate);
+
+                            // 分页容量依据当前页面可用波形宽度动态计算，避免横纵向切页错位。
                             int pageCapacity = GetPageCapacity(render, waveWidthPx, mode);
                             var pageData = SliceWaveData(targetOffset, pageCapacity);
 
+                            // 波形区域仅裁剪不画外框，确保超出区域不会越界渲染。
                             canvas.Save();
                             canvas.ClipRect(SKRect.Create(
-                                Mm(frameLeftMm),
+                                Mm(contentLeftMm),
                                 Mm(waveTopMm + waveInfoHeightMm),
-                                Mm(frameWidthMm),
-                                Mm(waveHeightMm - waveInfoHeightMm)));
-                            canvas.Translate(Mm(frameLeftMm), Mm(waveTopMm + waveInfoHeightMm));
+                                Mm(contentWidthMm),
+                                Mm(waveClipHeightMm)));
+                            canvas.Translate(Mm(contentLeftMm), Mm(waveTopMm + waveInfoHeightMm));
                             render.DrawDiagWaves(canvas, pageData, 0);
                             canvas.Restore();
 
@@ -2565,9 +2617,9 @@ namespace Water.Healthkit.Drawing
 
                             DrawImageStyleReportFooter(
                                 canvas,
-                                Mm(frameLeftMm),
+                                Mm(contentLeftMm),
                                 Mm(resultTopMm),
-                                Mm(frameWidthMm),
+                                Mm(contentWidthMm),
                                 Mm(resultHeightMm),
                                 (float v) => v * mmToPx,
                                 heartRate,
@@ -2595,16 +2647,16 @@ namespace Water.Healthkit.Drawing
                                 monoFont);
 
                             canvas.DrawText(
-                                TruncateTextToWidth(footerNotice, Mm(168f), smallFont),
-                                Mm(frameLeftMm + 1.4f),
+                                TruncateTextToWidth(footerNotice, Mm(contentWidthMm * 0.58f), smallFont),
+                                Mm(contentLeftMm + footerSidePaddingMm),
                                 Mm(footerBaselineMm),
                                 SKTextAlign.Left,
                                 smallFont,
                                 textPaint);
 
                             canvas.DrawText(
-                                TruncateTextToWidth($"打印时间：{reportTime:yyyy-MM-dd HH:mm:ss}    第 {page} 页", Mm(114f), smallFont),
-                                Mm(frameLeftMm + frameWidthMm - 1.4f),
+                                TruncateTextToWidth($"打印时间：{reportTime:yyyy-MM-dd HH:mm:ss}    第 {page} 页", Mm(contentWidthMm * 0.40f), smallFont),
+                                Mm(contentLeftMm + contentWidthMm - footerSidePaddingMm),
                                 Mm(footerBaselineMm),
                                 SKTextAlign.Right,
                                 smallFont,
