@@ -2480,13 +2480,14 @@ namespace Water.Healthkit.Drawing
                         {
                             // 页面高度不足以同时满足最小波形区与最小结果区时，优先保证结果区下限，波形区按剩余空间自适应。
                             float availableWaveMm = footerBaselineMm - footerTextBandMm - minResultHeightMm - sectionGapMm - waveTopMm;
-                            waveHeightMm = Math.Max(30f, availableWaveMm);
+                            waveHeightMm = Math.Max(0f, availableWaveMm);
                             resultTopMm = waveTopMm + sectionGapMm + waveHeightMm;
                             resultHeightMm = Math.Max(minResultHeightMm, footerBaselineMm - footerTextBandMm - resultTopMm);
                         }
 
                         float waveWidthPx = Mm(contentWidthMm);
-                        float waveContentHeightPx = Mm(Math.Max(10f, waveHeightMm - waveInfoHeightMm));
+                        float waveClipHeightMm = Math.Max(1f, waveHeightMm - waveInfoHeightMm);
+                        float waveContentHeightPx = Mm(Math.Max(10f, waveClipHeightMm));
                         using var patientInfoFont = new SKFont
                         {
                             Typeface = patientFont.Typeface,
@@ -2593,7 +2594,7 @@ namespace Water.Healthkit.Drawing
                                 Mm(contentLeftMm),
                                 Mm(waveTopMm + waveInfoHeightMm),
                                 Mm(contentWidthMm),
-                                Mm(waveHeightMm - waveInfoHeightMm)));
+                                Mm(waveClipHeightMm)));
                             canvas.Translate(Mm(contentLeftMm), Mm(waveTopMm + waveInfoHeightMm));
                             render.DrawDiagWaves(canvas, pageData, 0);
                             canvas.Restore();
