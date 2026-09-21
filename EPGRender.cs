@@ -2446,7 +2446,7 @@ namespace Water.Healthkit.Drawing
                         if (waveHeightMm < minWaveHeightMm)
                         {
                             float shrink = minWaveHeightMm - waveHeightMm;
-                            resultHeightMm = Math.Max(16f, resultHeightMm - shrink);
+                            resultHeightMm = Math.Max(minResultHeightMm, resultHeightMm - shrink);
                             resultTopMm = footerBaselineMm - footerReserveMm - resultHeightMm;
                             waveHeightMm = Math.Max(30f, resultTopMm - sectionGapMm - waveTopMm);
                         }
