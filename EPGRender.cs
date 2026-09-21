@@ -2411,15 +2411,18 @@ namespace Water.Healthkit.Drawing
                     break;
                 case EcgReportLayout.Single:
                     {
+                        // Single 报告版式：按传入页面尺寸动态布局，支持横向/纵向。
                         float pageWidthMm = iwidth;
                         float pageHeightMm = iheight;
                         bool isLandscape = pageWidthMm >= pageHeightMm;
 
+                        // 页面内容区（不绘制整页外框，仅用于坐标计算）。
                         float pageMarginMm = isLandscape ? 3f : 4f;
                         float contentLeftMm = pageMarginMm;
                         float contentTopMm = pageMarginMm;
                         float contentWidthMm = Math.Max(10f, pageWidthMm - 2f * pageMarginMm);
 
+                        // 顶部标题区、患者信息区与波形区的基础参数。
                         float sectionGapMm = isLandscape ? 2f : 1.8f;
                         float titleTopMm = contentTopMm;
                         float titleHeightMm = isLandscape ? 17f : 14f;
@@ -2438,10 +2441,12 @@ namespace Water.Healthkit.Drawing
                         float minTitleHeightMm = isLandscape ? 15f : 11f;
                         float minPatientHeightMm = isLandscape ? 10f : 10f;
 
+                        // 结果区先用目标高度，后续根据可用空间逐步回调。
                         float resultHeightMm = baseResultHeightMm;
                         float resultTopMm = 0f;
                         float waveHeightMm = 0f;
 
+                        // 根据当前标题/患者/结果区高度，重算各分区的纵向坐标关系。
                         void ReflowVertical()
                         {
                             patientTopMm = titleTopMm + titleHeightMm + sectionGapMm;
@@ -2452,6 +2457,7 @@ namespace Water.Healthkit.Drawing
 
                         ReflowVertical();
 
+                        // 若波形区不足最小高度，先压缩结果区（但不低于结果区最小高度）。
                         if (waveHeightMm < minWaveHeightMm)
                         {
                             float need = minWaveHeightMm - waveHeightMm;
@@ -2460,6 +2466,7 @@ namespace Water.Healthkit.Drawing
                             ReflowVertical();
                         }
 
+                        // 仍不足时，压缩患者信息区（保留可读最小高度）。
                         if (waveHeightMm < minWaveHeightMm)
                         {
                             float need = minWaveHeightMm - waveHeightMm;
@@ -2468,6 +2475,7 @@ namespace Water.Healthkit.Drawing
                             ReflowVertical();
                         }
 
+                        // 仍不足时，压缩标题区（保留标题最小可读高度）。
                         if (waveHeightMm < minWaveHeightMm)
                         {
                             float need = minWaveHeightMm - waveHeightMm;
@@ -2485,6 +2493,7 @@ namespace Water.Healthkit.Drawing
                             resultHeightMm = Math.Max(minResultHeightMm, footerBaselineMm - footerTextBandMm - resultTopMm);
                         }
 
+                        // 波形绘制尺寸：render 使用内容区宽度；clip 使用去除信息行后的有效高度。
                         float waveWidthPx = Mm(contentWidthMm);
                         float waveClipHeightMm = Math.Max(1f, waveHeightMm - waveInfoHeightMm);
                         float waveContentHeightPx = Mm(Math.Max(10f, waveClipHeightMm));
@@ -2509,6 +2518,7 @@ namespace Water.Healthkit.Drawing
 
                             canvas.Clear(SKColors.White);
 
+                            // 仅保留标题区边界线，作为顶部区块分隔。
                             canvas.DrawRect(
                                 Mm(contentLeftMm),
                                 Mm(titleTopMm),
@@ -2516,6 +2526,7 @@ namespace Water.Healthkit.Drawing
                                 Mm(titleHeightMm),
                                 borderPaint);
 
+                            // 条码在标题区左侧，横纵向使用不同尺寸保证可读性。
                             float barWidthMm = isLandscape ? 31f : 26f;
                             float barHeightMm = isLandscape ? 6.2f : 5.2f;
                             float barX = contentLeftMm + 2f;
@@ -2586,9 +2597,12 @@ namespace Water.Healthkit.Drawing
                                 mode,
                                 _secidx,
                                 effectiveSampleRate);
+
+                            // 分页容量依据当前页面可用波形宽度动态计算，避免横纵向切页错位。
                             int pageCapacity = GetPageCapacity(render, waveWidthPx, mode);
                             var pageData = SliceWaveData(targetOffset, pageCapacity);
 
+                            // 波形区域仅裁剪不画外框，确保超出区域不会越界渲染。
                             canvas.Save();
                             canvas.ClipRect(SKRect.Create(
                                 Mm(contentLeftMm),
