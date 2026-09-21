@@ -2423,32 +2423,66 @@ namespace Water.Healthkit.Drawing
                         float sectionGapMm = isLandscape ? 2f : 1.8f;
                         float titleTopMm = contentTopMm;
                         float titleHeightMm = isLandscape ? 17f : 14f;
-                        float patientTopMm = titleTopMm + titleHeightMm + sectionGapMm;
                         float patientHeightMm = isLandscape ? 12f : 14f;
-                        float waveTopMm = patientTopMm + patientHeightMm + sectionGapMm;
+                        float patientTopMm = 0f;
+                        float waveTopMm = 0f;
                         float waveInfoHeightMm = isLandscape ? 6f : 5.4f;
 
-                        float footerBaselineMm = pageHeightMm - pageMarginMm - 1.2f;
-                        float footerReserveMm = isLandscape ? 3.8f : 4.3f;
+                        const float footerBaselineOffsetMm = 1.2f; // 页脚文字基线距下边距的距离
+                        float footerTextBandMm = isLandscape ? 3.8f : 4.3f; // 结果区下方为“注释+打印时间”预留的高度
+                        float footerSidePaddingMm = 1.2f;
+                        float footerBaselineMm = pageHeightMm - pageMarginMm - footerBaselineOffsetMm;
                         float minWaveHeightMm = isLandscape ? 72f : 112f;
                         float baseResultHeightMm = isLandscape ? 25f : 40f;
                         float minResultHeightMm = isLandscape ? 19f : 28f;
-                        float maxResultHeightMm = Math.Max(
-                            minResultHeightMm,
-                            footerBaselineMm - footerReserveMm - (waveTopMm + sectionGapMm + minWaveHeightMm));
+                        float minTitleHeightMm = isLandscape ? 15f : 11f;
+                        float minPatientHeightMm = isLandscape ? 10f : 10f;
 
-                        float resultHeightMm = Math.Max(
-                            minResultHeightMm,
-                            Math.Min(baseResultHeightMm, maxResultHeightMm));
-                        float resultTopMm = footerBaselineMm - footerReserveMm - resultHeightMm;
-                        float waveHeightMm = Math.Max(30f, resultTopMm - sectionGapMm - waveTopMm);
+                        float resultHeightMm = baseResultHeightMm;
+                        float resultTopMm = 0f;
+                        float waveHeightMm = 0f;
+
+                        void ReflowVertical()
+                        {
+                            patientTopMm = titleTopMm + titleHeightMm + sectionGapMm;
+                            waveTopMm = patientTopMm + patientHeightMm + sectionGapMm;
+                            resultTopMm = footerBaselineMm - footerTextBandMm - resultHeightMm;
+                            waveHeightMm = Math.Max(30f, resultTopMm - sectionGapMm - waveTopMm);
+                        }
+
+                        ReflowVertical();
 
                         if (waveHeightMm < minWaveHeightMm)
                         {
-                            float shrink = minWaveHeightMm - waveHeightMm;
-                            resultHeightMm = Math.Max(minResultHeightMm, resultHeightMm - shrink);
-                            resultTopMm = footerBaselineMm - footerReserveMm - resultHeightMm;
-                            waveHeightMm = Math.Max(30f, resultTopMm - sectionGapMm - waveTopMm);
+                            float need = minWaveHeightMm - waveHeightMm;
+                            float shrinkResult = Math.Min(Math.Max(resultHeightMm - minResultHeightMm, 0f), need);
+                            resultHeightMm -= shrinkResult;
+                            ReflowVertical();
+                        }
+
+                        if (waveHeightMm < minWaveHeightMm)
+                        {
+                            float need = minWaveHeightMm - waveHeightMm;
+                            float shrinkPatient = Math.Min(Math.Max(patientHeightMm - minPatientHeightMm, 0f), need);
+                            patientHeightMm -= shrinkPatient;
+                            ReflowVertical();
+                        }
+
+                        if (waveHeightMm < minWaveHeightMm)
+                        {
+                            float need = minWaveHeightMm - waveHeightMm;
+                            float shrinkTitle = Math.Min(Math.Max(titleHeightMm - minTitleHeightMm, 0f), need);
+                            titleHeightMm -= shrinkTitle;
+                            ReflowVertical();
+                        }
+
+                        if (waveHeightMm < minWaveHeightMm)
+                        {
+                            // 页面高度不足以同时满足最小波形区与最小结果区时，优先保证结果区下限，波形区按剩余空间自适应。
+                            float availableWaveMm = footerBaselineMm - footerTextBandMm - minResultHeightMm - sectionGapMm - waveTopMm;
+                            waveHeightMm = Math.Max(30f, availableWaveMm);
+                            resultTopMm = waveTopMm + sectionGapMm + waveHeightMm;
+                            resultHeightMm = Math.Max(minResultHeightMm, footerBaselineMm - footerTextBandMm - resultTopMm);
                         }
 
                         float waveWidthPx = Mm(contentWidthMm);
@@ -2599,7 +2633,7 @@ namespace Water.Healthkit.Drawing
 
                             canvas.DrawText(
                                 TruncateTextToWidth(footerNotice, Mm(contentWidthMm * 0.58f), smallFont),
-                                Mm(contentLeftMm + 1.2f),
+                                Mm(contentLeftMm + footerSidePaddingMm),
                                 Mm(footerBaselineMm),
                                 SKTextAlign.Left,
                                 smallFont,
@@ -2607,7 +2641,7 @@ namespace Water.Healthkit.Drawing
 
                             canvas.DrawText(
                                 TruncateTextToWidth($"打印时间：{reportTime:yyyy-MM-dd HH:mm:ss}    第 {page} 页", Mm(contentWidthMm * 0.40f), smallFont),
-                                Mm(contentLeftMm + contentWidthMm - 1.2f),
+                                Mm(contentLeftMm + contentWidthMm - footerSidePaddingMm),
                                 Mm(footerBaselineMm),
                                 SKTextAlign.Right,
                                 smallFont,
